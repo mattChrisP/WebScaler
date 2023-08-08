@@ -45,6 +45,7 @@
 
   </p>
 </div>
+
 ![Overview](https://github.com/mattChrisP/WebScaler/raw/master/overview.jpg)
 
 <!-- TABLE OF CONTENTS -->
