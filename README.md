@@ -41,13 +41,11 @@
     <br />
     <!-- <a href="https://github.com/github_username/repo_name"><strong>Explore the docs »</strong></a> -->
     <br />
-    <br />
-    ![Overview](./overview.jpg)
+    
 
   </p>
 </div>
-
-
+![Overview](https://github.com/mattChrisP/WebScaler/raw/master/overview.jpg)
 
 <!-- TABLE OF CONTENTS -->
 <details>
