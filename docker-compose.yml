@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  flask-api:
+    build: ./Img_Upscaler
+    ports:
+      - 5000:5000
+
+  go-server:
+    build: ./Server
+    ports:
+      - 8080:8080
+    depends_on:
+      - rabbitmq
+    volumes:
+      - shared-uploads:/tmp
+
+  go-worker:
+    build: ./Worker
+    depends_on:
+      - rabbitmq
+      - flask-api
+    volumes:
+      - shared-uploads:/tmp
+
+  # react-app:
+  #   build: ./FE
+  #   ports:
+  #     - 3000:3000
+  #   depends_on:
+  #     - go-server
+
+  rabbitmq:
+    image: 'rabbitmq:3-management'
+    ports:
+      - 5672:5672
+      - 15672:15672
+
+volumes:
+  shared-uploads:
