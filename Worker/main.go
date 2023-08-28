@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -20,7 +23,6 @@ func failOnError(err error, msg string) {
 }
 
 func callFlaskAPI(filePath string) error {
-	// Read the file
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -28,8 +30,16 @@ func callFlaskAPI(filePath string) error {
 	defer file.Close()
 
 	var requestBody bytes.Buffer
-
 	multiPartWriter := multipart.NewWriter(&requestBody)
+
+	uniqueID := filepath.Base(filePath)                                         // this gets you the filename
+	uniqueID = strings.TrimSuffix(uniqueID, "-uploaded"+filepath.Ext(uniqueID)) // this removes the -uploaded and file extension
+
+	// Add the unique ID as a field
+	err = multiPartWriter.WriteField("uniqueId", uniqueID)
+	if err != nil {
+		return err
+	}
 
 	fileWriter, err := multiPartWriter.CreateFormFile("image", filepath.Base(filePath))
 	if err != nil {
@@ -40,11 +50,8 @@ func callFlaskAPI(filePath string) error {
 	if err != nil {
 		return err
 	}
-
-	// Close the multipart writer to set the correct boundaries
 	multiPartWriter.Close()
 
-	// Create the HTTP request to Flask API
 	request, err := http.NewRequest("POST", "http://flask-api:5000/upscale", &requestBody)
 	if err != nil {
 		return err
@@ -58,10 +65,42 @@ func callFlaskAPI(filePath string) error {
 	}
 	defer response.Body.Close()
 
-	// Here you may want to handle the response, for example, check if the status code is 200
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("received non-200 status code: %d", response.StatusCode)
+	}
 
-	// Delete the file
+	imageData, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	// Construct the file path using the unique ID
+	outputPath := filepath.Join("/tmp", fmt.Sprintf("%s-upscaled.png", uniqueID))
+	err = ioutil.WriteFile(outputPath, imageData, 0644)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Upscaled image saved at: %s", outputPath)
+
+	goServerRequest, err := http.NewRequest("POST", "http://go-server:8080/receive-upscaled-image", bytes.NewReader(imageData))
+	if err != nil {
+		return err
+	}
+	goServerRequest.Header.Set("X-File-Name", outputPath)
+
+	goServerResponse, err := client.Do(goServerRequest)
+	if err != nil {
+		return err
+	}
+	log.Printf("Sent image to Go server, received status code: %d", goServerResponse.StatusCode)
+	defer goServerResponse.Body.Close()
+
+	if goServerResponse.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to send image to Go server, status code: %d", goServerResponse.StatusCode)
+	}
+
 	err = os.Remove(filePath)
+	log.Printf("Attempting to delete file at: %s", filePath)
 	if err != nil {
 		return err
 	}
@@ -101,20 +140,22 @@ func main() {
 	q, err := ch.QueueDeclare("task_queue", true, false, false, false, nil)
 	failOnError(err, "Failed to declare a queue")
 
-	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
+	ch.Qos(1, 0, false)
+
+	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
 	failOnError(err, "Failed to register a consumer")
 
 	forever := make(chan bool)
 
 	go func() {
 		for d := range msgs {
-			log.Printf("Received a message: %s", d.Body)
 			err := callFlaskAPI(string(d.Body))
 			if err != nil {
-				log.Printf("Failed to process image: %s", err)
-				continue
+				log.Printf("Error processing the image: %v", err)
+				d.Nack(false, true) // Requeue the message
+			} else {
+				d.Ack(false)
 			}
-			log.Printf("Successfully processed image")
 		}
 	}()
 

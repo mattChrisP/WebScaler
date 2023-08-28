@@ -23,12 +23,14 @@ services:
     volumes:
       - shared-uploads:/tmp
 
-  # react-app:
-  #   build: ./FE
-  #   ports:
-  #     - 3000:3000
-  #   depends_on:
-  #     - go-server
+  react-app:
+    build: ./FE
+    ports:
+      - 3000:3000
+    environment:
+      - HOST=0.0.0.0
+    depends_on:
+      - go-server
 
   rabbitmq:
     image: 'rabbitmq:3-management'
